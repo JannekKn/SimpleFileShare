@@ -1,0 +1,13 @@
+<% layout('layout', { title: 'Upload File', user: user, messages: messages }) %>
+<h2>Upload File</h2>
+<form method="post" action="/upload" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label class="form-label">Select file (max 5GB)</label>
+    <input type="file" name="file" class="form-control" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Delete time (in days) or set to 'disabled'</label>
+    <input type="text" name="deleteTime" class="form-control" placeholder="7 (default) or disabled">
+  </div>
+  <button type="submit" class="btn btn-primary">Upload</button>
+</form>

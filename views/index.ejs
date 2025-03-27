@@ -1,0 +1,29 @@
+<% layout('layout', { title: 'Your Uploads', user: user, messages: messages }) %>
+<h2>Your Uploads</h2>
+<table class="table">
+  <thead>
+    <tr>
+      <th>Filename</th>
+      <th>Size</th>
+      <th>Uploaded</th>
+      <th>Delete At</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% uploads.forEach(upload => { %>
+      <tr>
+        <td><%= upload.filename %></td>
+        <td><%= (upload.filesize / (1024*1024)).toFixed(2) %> MB</td>
+        <td><%= new Date(upload.upload_date).toLocaleString() %></td>
+        <td><%= upload.delete_at ? new Date(upload.delete_at).toLocaleString() : 'Disabled' %></td>
+        <td>
+          <a href="/download/<%= upload.download_link %>" class="btn btn-sm btn-info">View/Download</a>
+          <form method="post" action="/delete/<%= upload.id %>" style="display:inline;">
+            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>

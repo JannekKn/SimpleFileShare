@@ -1,0 +1,24 @@
+
+
+
+
+
+
+Code to set up DB
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(255) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE uploads (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  filename VARCHAR(255) NOT NULL,
+  filepath VARCHAR(255) NOT NULL,
+  filesize BIGINT NOT NULL,
+  upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  delete_at DATETIME DEFAULT NULL,
+  download_link VARCHAR(255) UNIQUE NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);

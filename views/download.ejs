@@ -1,0 +1,9 @@
+<% layout('layout', { title: 'Download File', user: null, messages: {} }) %>
+<h2>Download File</h2>
+<p><strong>Filename:</strong> <%= file.filename %></p>
+<p><strong>Size:</strong> <%= (file.filesize / (1024*1024)).toFixed(2) %> MB</p>
+<!-- You can add additional preview elements if needed -->
+<form method="post" action="/download/<%= file.download_link %>">
+  <button type="submit" class="btn btn-primary">Download Now</button>
+</form>
+<p>If the download doesn't start automatically, click the button above.</p>
