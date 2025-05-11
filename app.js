@@ -10,35 +10,25 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const mysql = require('mysql2/promise');
+const mariadb = require('mariadb');
+const expressLayouts = require('express-ejs-layouts');
+const config = require('./config');
 
 const app = express();
 
-// --- Database Connection ---
-// Adjust your connection parameters as needed.
-const dbConfig = {
-  host: 'localhost',
-  user: 'your_db_user',
-  password: 'your_db_password',
-  database: 'your_database'
-};
-
-let db;
-mysql.createConnection(dbConfig).then(connection => {
-  db = connection;
-  console.log('Connected to MariaDB');
-}).catch(err => {
-  console.error('DB connection error:', err);
-});
+// --- Create a MariaDB Connection Pool ---
+const pool = mariadb.createPool(config.db);
 
 // --- Middleware Setup ---
 app.set('view engine', 'ejs');
+app.use(expressLayouts);
+app.set('layout', 'layout'); // Uses views/layout.ejs as the default layout
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use(session({
-  secret: 'your_secret_key',
+  secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false
 }));
@@ -46,17 +36,33 @@ app.use(flash());
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.use((req, res, next) => {
+  res.locals.user = req.user || null; // Ensure 'user' is available in all views
+  res.locals.messages = req.flash();  // Make flash messages available in all views
+  next();
+});
+
+
+
 // --- Passport Local Strategy ---
 passport.use(new LocalStrategy(async (username, password, done) => {
+  let conn;
   try {
-    const [rows] = await db.execute('SELECT * FROM users WHERE username = ?', [username]);
-    if (!rows.length) return done(null, false, { message: 'Incorrect username.' });
+    conn = await pool.getConnection();
+    const rows = await conn.query('SELECT * FROM users WHERE username = ?', [username]);
+    if (!rows || rows.length === 0) {
+      return done(null, false, { message: 'Incorrect username.' });
+    }
     const user = rows[0];
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return done(null, false, { message: 'Incorrect password.' });
+    if (!match) {
+      return done(null, false, { message: 'Incorrect password.' });
+    }
     return done(null, user);
   } catch (err) {
     return done(err);
+  } finally {
+    if (conn) conn.release();
   }
 }));
 
@@ -64,12 +70,18 @@ passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 passport.deserializeUser(async (id, done) => {
+  let conn;
   try {
-    const [rows] = await db.execute('SELECT * FROM users WHERE id = ?', [id]);
-    if (!rows.length) return done(new Error('User not found'));
+    conn = await pool.getConnection();
+    const rows = await conn.query('SELECT * FROM users WHERE id = ?', [id]);
+    if (!rows || rows.length === 0) {
+      return done(new Error('User not found'));
+    }
     done(null, rows[0]);
   } catch (err) {
     done(err);
+  } finally {
+    if (conn) conn.release();
   }
 });
 
@@ -102,17 +114,21 @@ function ensureAuthenticated(req, res, next) {
 
 // Home page (list user's uploads)
 app.get('/', ensureAuthenticated, async (req, res) => {
+  let conn;
   try {
-    const [uploads] = await db.execute('SELECT * FROM uploads WHERE user_id = ?', [req.user.id]);
-    res.render('index', { user: req.user, uploads, messages: req.flash() });
+    conn = await pool.getConnection();
+    const uploads = await conn.query('SELECT * FROM uploads WHERE user_id = ?', [req.user.id]);
+    res.render('index', { title: 'Your Uploads', user: req.user, uploads, messages: req.flash() });
   } catch (err) {
     res.send('Error loading uploads.');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // Register
 app.get('/register', (req, res) => {
-  res.render('register', { messages: req.flash() });
+  res.render('register', { title: 'Register', messages: req.flash() });
 });
 app.post('/register', [
   body('username').trim().notEmpty().withMessage('Username is required.'),
@@ -124,20 +140,24 @@ app.post('/register', [
     return res.redirect('/register');
   }
   const { username, password } = req.body;
+  let conn;
   try {
+    conn = await pool.getConnection();
     const hashedPassword = await bcrypt.hash(password, 10);
-    await db.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
+    await conn.query('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
     req.flash('success', 'Registration successful. Please log in.');
     res.redirect('/login');
   } catch (err) {
     req.flash('error', 'User registration failed. Username may already exist.');
     res.redirect('/register');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // Login
 app.get('/login', (req, res) => {
-  res.render('login', { messages: req.flash() });
+  res.render('login', { title: 'Login', messages: req.flash() });
 });
 app.post('/login', passport.authenticate('local', {
   successRedirect: '/',
@@ -146,19 +166,19 @@ app.post('/login', passport.authenticate('local', {
 }));
 
 // Logout
-app.get('/logout', (req, res) => {
-  req.logout(() => {
+app.get('/logout', (req, res, next) => {
+  req.logout(err => {
+    if (err) { return next(err); }
     res.redirect('/login');
   });
 });
 
 // File Upload
 app.get('/upload', ensureAuthenticated, (req, res) => {
-  res.render('upload', { messages: req.flash() });
+  res.render('upload', { title: 'Upload File', messages: req.flash() });
 });
 app.post('/upload', ensureAuthenticated, uploadMiddleware.single('file'), async (req, res) => {
-  // Get delete time from form (in hours or a flag for disabled)
-  // For simplicity, assume form sends deleteTime (number of days) or 'disabled'
+  // Process delete time: expects a number (days) or the string 'disabled'
   let deleteAt = null;
   if (req.body.deleteTime && req.body.deleteTime !== 'disabled') {
     const days = parseInt(req.body.deleteTime);
@@ -172,8 +192,10 @@ app.post('/upload', ensureAuthenticated, uploadMiddleware.single('file'), async 
     deleteAt.setDate(deleteAt.getDate() + 7);
   }
   const downloadToken = uuidv4();
+  let conn;
   try {
-    await db.execute(
+    conn = await pool.getConnection();
+    await conn.query(
       'INSERT INTO uploads (user_id, filename, filepath, filesize, delete_at, download_link) VALUES (?, ?, ?, ?, ?, ?)',
       [req.user.id, req.file.originalname, req.file.filename, req.file.size, deleteAt, downloadToken]
     );
@@ -182,61 +204,72 @@ app.post('/upload', ensureAuthenticated, uploadMiddleware.single('file'), async 
   } catch (err) {
     req.flash('error', 'Error saving file info.');
     res.redirect('/upload');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // Download page
 app.get('/download/:token', async (req, res) => {
+  let conn;
   try {
-    const [rows] = await db.execute('SELECT * FROM uploads WHERE download_link = ?', [req.params.token]);
-    if (!rows.length) return res.send('Invalid download link.');
+    conn = await pool.getConnection();
+    const rows = await conn.query('SELECT * FROM uploads WHERE download_link = ?', [req.params.token]);
+    if (!rows || rows.length === 0) return res.send('Invalid download link.');
     const file = rows[0];
-    res.render('download', { file });
+    res.render('download', { title: 'Download File', file });
   } catch (err) {
     res.send('Error retrieving file.');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // File Download Action
 app.post('/download/:token', async (req, res) => {
+  let conn;
   try {
-    const [rows] = await db.execute('SELECT * FROM uploads WHERE download_link = ?', [req.params.token]);
-    if (!rows.length) return res.send('Invalid download link.');
+    conn = await pool.getConnection();
+    const rows = await conn.query('SELECT * FROM uploads WHERE download_link = ?', [req.params.token]);
+    if (!rows || rows.length === 0) return res.send('Invalid download link.');
     const file = rows[0];
     const filePath = path.join(uploadFolder, file.filepath);
     res.download(filePath, file.filename);
   } catch (err) {
     res.send('Error downloading file.');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // Delete an upload (only owner can delete)
 app.post('/delete/:id', ensureAuthenticated, async (req, res) => {
+  let conn;
   try {
-    // Verify file belongs to user
-    const [rows] = await db.execute('SELECT * FROM uploads WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
-    if (!rows.length) {
+    conn = await pool.getConnection();
+    const rows = await conn.query('SELECT * FROM uploads WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    if (!rows || rows.length === 0) {
       req.flash('error', 'File not found or unauthorized.');
       return res.redirect('/');
     }
     const file = rows[0];
-    // Delete file from filesystem
     const filePath = path.join(uploadFolder, file.filepath);
     fs.unlink(filePath, (err) => {
       if (err) console.error('Error deleting file:', err);
     });
-    // Remove DB entry
-    await db.execute('DELETE FROM uploads WHERE id = ?', [req.params.id]);
+    await conn.query('DELETE FROM uploads WHERE id = ?', [req.params.id]);
     req.flash('success', 'File deleted.');
     res.redirect('/');
   } catch (err) {
     req.flash('error', 'Error deleting file.');
     res.redirect('/');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 // Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4569;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

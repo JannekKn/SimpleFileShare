@@ -1,13 +1,55 @@
-<% layout('layout', { title: 'Upload File', user: user, messages: messages }) %>
 <h2>Upload File</h2>
-<form method="post" action="/upload" enctype="multipart/form-data">
+<form id="uploadForm" method="post" action="/upload" enctype="multipart/form-data">
   <div class="mb-3">
     <label class="form-label">Select file (max 5GB)</label>
     <input type="file" name="file" class="form-control" required>
   </div>
   <div class="mb-3">
-    <label class="form-label">Delete time (in days) or set to 'disabled'</label>
+    <label class="form-label">Delete time (in days) or type 'disabled'</label>
     <input type="text" name="deleteTime" class="form-control" placeholder="7 (default) or disabled">
   </div>
   <button type="submit" class="btn btn-primary">Upload</button>
 </form>
+
+<!-- Progress Bar -->
+<div class="progress mt-3" style="display: none;">
+  <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+</div>
+
+<script>
+document.getElementById("uploadForm").addEventListener("submit", function(event) {
+    event.preventDefault(); // Prevent default form submission
+
+    const form = event.target;
+    const formData = new FormData(form);
+    const xhr = new XMLHttpRequest();
+    const progressBar = document.getElementById("progressBar");
+    const progressContainer = document.querySelector(".progress");
+
+    progressContainer.style.display = "block";
+
+    xhr.upload.addEventListener("progress", function(event) {
+        if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            progressBar.style.width = percent + "%";
+            progressBar.innerText = percent + "%";
+        }
+    });
+
+    xhr.open("POST", form.action, true);
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            progressBar.classList.add("bg-success");
+            progressBar.innerText = "Upload Complete!";
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 1500);
+        } else {
+            progressBar.classList.add("bg-danger");
+            progressBar.innerText = "Upload Failed!";
+        }
+    };
+
+    xhr.send(formData);
+});
+</script>

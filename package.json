@@ -1,7 +1,7 @@
 {
-    "name": "file-uploader",
+    "name": "simple-file-share",
     "version": "1.0.0",
-    "description": "A simple Node.js file uploader with secure login",
+    "description": "A simple Node.js file uploader with secure login using MariaDB.",
     "main": "app.js",
     "scripts": {
       "start": "node app.js"
@@ -14,8 +14,9 @@
       "express": "^4.18.2",
       "express-session": "^1.17.3",
       "express-validator": "^6.14.2",
+      "express-ejs-layouts": "^2.5.1",
+      "mariadb": "^3.0.6",
       "multer": "^1.4.5-lts.1",
-      "mysql2": "^2.3.3",
       "passport": "^0.6.0",
       "passport-local": "^1.0.0",
       "uuid": "^8.3.2"
